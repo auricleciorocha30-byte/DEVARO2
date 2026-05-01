@@ -1,0 +1,132 @@
+{
+  "entities": {
+    "StoreProfile": {
+      "title": "StoreProfile",
+      "description": "Store configuration and profile details.",
+      "type": "object",
+      "properties": {
+        "slug": { "type": "string" },
+        "name": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "address": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "number" },
+        "settings": { "type": "object" }
+      },
+      "required": ["slug", "name", "isActive", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Waitstaff user profile containing role and store assignment.",
+      "type": "object",
+      "properties": {
+        "store_id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["GERENTE", "ATENDENTE", "ENTREGADOR"] }
+      },
+      "required": ["name", "role", "store_id"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Store products for inventory and menu.",
+      "type": "object",
+      "properties": {
+        "store_id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["store_id", "name", "price", "category", "isActive"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Store orders processing.",
+      "type": "object",
+      "properties": {
+        "store_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["MESA", "BALCAO", "ENTREGA", "COMANDA"] },
+        "status": { "type": "string", "enum": ["AGUARDANDO", "AGUARDANDO_PAGAMENTO", "PAGO", "PREPARANDO", "PRONTO", "ENVIADO_PARA_ENTREGA", "CHEGUEI_NA_ORIGEM", "SAIU_PARA_ENTREGA", "ENTREGUE", "CANCELADO"] },
+        "total": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "items": { "type": "array" }
+      },
+      "required": ["store_id", "type", "status", "total", "createdAt", "items"]
+    },
+    "CashMovement": {
+      "title": "CashMovement",
+      "description": "Cash register movements.",
+      "type": "object",
+      "properties": {
+        "store_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["SANGRIA", "SUPRIMENTO", "ABERTURA_CAIXA", "FECHAMENTO_CAIXA"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "waitstaffName": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["store_id", "type", "amount", "description", "waitstaffName", "createdAt"]
+    },
+    "RegisterSession": {
+      "title": "RegisterSession",
+      "description": "Cash register session handling.",
+      "type": "object",
+      "properties": {
+        "store_id": { "type": "string" },
+        "waitstaff_id": { "type": "string" },
+        "waitstaff_name": { "type": "string" },
+        "opened_at": { "type": "number" },
+        "initial_amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["OPEN", "CLOSED"] }
+      },
+      "required": ["store_id", "waitstaff_id", "waitstaff_name", "opened_at", "initial_amount", "status"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer accounts and loyalty.",
+      "type": "object",
+      "properties": {
+        "store_id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "points": { "type": "number" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["store_id", "name", "phone", "points", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/stores/{storeId}": {
+      "schema": { "$ref": "#/entities/StoreProfile" },
+      "description": "Contains metadata and settings for all stores."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Contains user profiles containing their store mapping."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Top-level collection for products mapped via store_id."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Top-level collection for orders mapped via store_id."
+    },
+    "/cashMovements/{movementId}": {
+      "schema": { "$ref": "#/entities/CashMovement" },
+      "description": "Top-level collection for cash register traces mapped via store_id."
+    },
+    "/registerSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/RegisterSession" },
+      "description": "Top-level collection for cash register sessions mapped via store_id."
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Top-level collection for customer mapping."
+    }
+  }
+}

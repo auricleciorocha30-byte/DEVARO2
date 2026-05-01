@@ -1,0 +1,188 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 0.1 Global Primitives
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    // Only verified emails or explicitly anonymous? For this app, it's staff login. Let's assume verified or just auth!=null since it's an internal app.
+
+    // Get current user data
+    function getUserData() {
+      // We look up the user document to get their properties
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isMemberOf(storeId) {
+      return isSignedIn() && getUserData().store_id == storeId;
+    }
+    function isGerenteOf(storeId) {
+      return isMemberOf(storeId) && getUserData().role == 'GERENTE';
+    }
+
+    // --- Entity Validation Blueprints ---
+
+    // 1. Stores
+    function isValidStore(data) {
+      return data.size() >= 4 &&
+             data.keys().hasAll(['slug', 'name', 'isActive', 'createdAt']) &&
+             data.slug is string && data.slug.size() > 0 && data.slug.size() <= 64 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+             data.isActive is bool &&
+             data.createdAt is number &&
+             (data.get('logoUrl', '') is string) &&
+             (data.get('address', '') is string) &&
+             (data.get('whatsapp', '') is string) &&
+             (data.get('settings', {}) is map);
+    }
+
+    // 2. Users (Waitstaff)
+    function isValidUser(data) {
+      return data.size() >= 3 &&
+             data.keys().hasAll(['store_id', 'name', 'role']) &&
+             data.store_id is string && data.store_id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+             data.role in ['GERENTE', 'ATENDENTE', 'ENTREGADOR'] &&
+             (data.get('phone', '') is string) && data.get('phone', '').size() <= 32;
+    }
+
+    // 3. Products
+    function isValidProduct(data) {
+      return data.size() >= 5 &&
+             data.keys().hasAll(['store_id', 'name', 'price', 'category', 'isActive']) &&
+             data.store_id is string && data.store_id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+             (data.get('description', '') is string) && data.get('description', '').size() <= 1024 &&
+             data.price is number && data.price >= 0 &&
+             data.category is string && data.category.size() <= 128 &&
+             (data.get('imageUrl', '') is string) && data.get('imageUrl', '').size() <= 1024 &&
+             data.isActive is bool;
+    }
+
+    // 4. Orders
+    function isValidOrder(data) {
+      return data.size() >= 6 &&
+             data.keys().hasAll(['store_id', 'type', 'status', 'total', 'createdAt', 'items']) &&
+             data.store_id is string && data.store_id.size() <= 128 &&
+             data.type in ['MESA', 'BALCAO', 'ENTREGA', 'COMANDA'] &&
+             data.status in ['AGUARDANDO', 'AGUARDANDO_PAGAMENTO', 'PAGO', 'PREPARANDO', 'PRONTO', 'ENVIADO_PARA_ENTREGA', 'CHEGUEI_NA_ORIGEM', 'SAIU_PARA_ENTREGA', 'ENTREGUE', 'CANCELADO'] &&
+             data.total is number && data.total >= 0 &&
+             data.createdAt is number &&
+             data.items is list && data.items.size() <= 100;
+             // Can add further item checks if needed, e.g. data.items.size() > 0
+    }
+
+    // 5. CashMovements
+    function isValidCashMovement(data) {
+      return data.size() >= 6 &&
+             data.keys().hasAll(['store_id', 'type', 'amount', 'description', 'waitstaffName', 'createdAt']) &&
+             data.store_id is string && data.store_id.size() <= 128 &&
+             data.type in ['SANGRIA', 'SUPRIMENTO', 'ABERTURA_CAIXA', 'FECHAMENTO_CAIXA'] &&
+             data.amount is number &&
+             data.description is string && data.description.size() <= 512 &&
+             data.waitstaffName is string && data.waitstaffName.size() <= 128 &&
+             data.createdAt is number;
+    }
+
+    // 6. RegisterSession
+    function isValidRegisterSession(data) {
+      return data.size() >= 6 &&
+             data.keys().hasAll(['store_id', 'waitstaff_id', 'waitstaff_name', 'opened_at', 'initial_amount', 'status']) &&
+             data.store_id is string && data.store_id.size() <= 128 &&
+             data.waitstaff_id is string && data.waitstaff_id.size() <= 128 &&
+             data.waitstaff_name is string && data.waitstaff_name.size() <= 128 &&
+             data.opened_at is number &&
+             data.initial_amount is number &&
+             data.status in ['OPEN', 'CLOSED'];
+    }
+
+    // 7. Customer
+    function isValidCustomer(data) {
+      return data.size() >= 5 &&
+             data.keys().hasAll(['store_id', 'name', 'phone', 'points', 'createdAt']) &&
+             data.store_id is string && data.store_id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+             data.phone is string && data.phone.size() <= 32 &&
+             data.points is number && data.points >= 0 &&
+             data.createdAt is number;
+    }
+
+    // --- Path Rules ---
+
+    match /stores/{storeId} {
+      allow get: if isValidId(storeId);
+      allow list: if isMemberOf(storeId);
+      
+      allow create: if isSignedIn() && isValidId(storeId) && isValidStore(incoming()) && incoming().keys().size() <= 10;
+      allow update: if isValidId(storeId) && isGerenteOf(storeId) && isValidStore(incoming()) && incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'logoUrl', 'address', 'whatsapp', 'isActive', 'settings']);
+      allow delete: if isValidId(storeId) && isGerenteOf(storeId);
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if isSignedIn() && existing().store_id == getUserData().store_id;
+
+      allow create: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && isValidUser(incoming()) && incoming().keys().size() <= 6;
+      allow update: if isValidId(userId) && isValidUser(incoming()) && incoming().store_id == existing().store_id &&
+        (userId == request.auth.uid || isGerenteOf(existing().store_id)) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'role']);
+      allow delete: if false;
+    }
+
+    match /products/{productId} {
+      allow get: if isValidId(productId);
+      allow list: if existing().store_id == getUserData().store_id || !isSignedIn();
+
+      allow create: if isValidId(productId) && isGerenteOf(incoming().store_id) && isValidProduct(incoming()) && incoming().keys().size() <= 25;
+      allow update: if isValidId(productId) && isGerenteOf(existing().store_id) && incoming().store_id == existing().store_id && isValidProduct(incoming()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'price', 'category', 'imageUrl', 'isActive', 'showInMenu', 'featuredDay', 'isByWeight', 'barcode', 'stock', 'fractions', 'units', 'fractionPrice', 'ncm', 'cfop', 'icms_situacao_tributaria', 'complements']);
+      allow delete: if isValidId(productId) && isGerenteOf(existing().store_id);
+    }
+
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && (isMemberOf(existing().store_id) || !isSignedIn());
+      allow list: if existing().store_id == getUserData().store_id || !isSignedIn();
+
+      allow create: if isValidId(orderId) && isValidOrder(incoming()) && incoming().keys().size() <= 35 && (!isSignedIn() || isMemberOf(incoming().store_id));
+      allow update: if isValidId(orderId) && isMemberOf(existing().store_id) && incoming().store_id == existing().store_id && isValidOrder(incoming()) && incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'waitstaffName', 'paymentMethod', 'notes', 'deliveryDriverId', 'isSynced', 'paymentDetails', 'stockDeducted']);
+      allow delete: if false; 
+    }
+
+    match /cashMovements/{movementId} {
+      allow get: if isValidId(movementId) && isMemberOf(existing().store_id);
+      allow list: if isSignedIn() && existing().store_id == getUserData().store_id;
+
+      allow create: if isValidId(movementId) && isMemberOf(incoming().store_id) && isValidCashMovement(incoming()) && incoming().keys().size() <= 15;
+      allow update: if false; 
+      allow delete: if false;
+    }
+
+    match /registerSessions/{sessionId} {
+      allow get: if isValidId(sessionId) && isMemberOf(existing().store_id);
+      allow list: if isSignedIn() && existing().store_id == getUserData().store_id;
+
+      allow create: if isValidId(sessionId) && isMemberOf(incoming().store_id) && isValidRegisterSession(incoming()) && incoming().keys().size() <= 15;
+      allow update: if isValidId(sessionId) && isMemberOf(existing().store_id) && incoming().store_id == existing().store_id && isValidRegisterSession(incoming()) && incoming().opened_at == existing().opened_at && incoming().waitstaff_id == existing().waitstaff_id &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['closed_at', 'closed_amount', 'status']);
+      allow delete: if false;
+    }
+
+    match /customers/{customerId} {
+      allow get: if isValidId(customerId) && isMemberOf(existing().store_id);
+      allow list: if isSignedIn() && existing().store_id == getUserData().store_id;
+
+      allow create: if isValidId(customerId) && isMemberOf(incoming().store_id) && isValidCustomer(incoming()) && incoming().keys().size() <= 15;
+      allow update: if isValidId(customerId) && isMemberOf(existing().store_id) && incoming().store_id == existing().store_id && isValidCustomer(incoming()) && incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'points', 'address', 'referencePoint', 'cpf', 'isLoyaltyParticipant']);
+      allow delete: if isValidId(customerId) && isGerenteOf(existing().store_id);
+    }
+  }
+}
